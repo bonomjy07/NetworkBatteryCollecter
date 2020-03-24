@@ -55,7 +55,6 @@ protected:
 	// The pawn who picked up the pickup
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Pickup", Meta = (BlueprintProtected = "true"))
 	APawn* PickupInstigator;
-	// 2번영상: onRep_IsActive() 있는데 지금은 ㅓㅇㅄ음
 	/*
 	UFUNCTION()
 	virtual void OnRep_IsActive();
