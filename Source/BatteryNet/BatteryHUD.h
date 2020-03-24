@@ -14,4 +14,10 @@ class BATTERYNET_API ABatteryHUD : public AHUD
 {
 	GENERATED_BODY()
 	
+protected:
+	UPROPERTY(EditDefaultsOnly)
+	UTexture2D* CrosshairTexture;
+
+public:
+	virtual void DrawHUD() override;
 };

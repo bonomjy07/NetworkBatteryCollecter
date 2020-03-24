@@ -20,10 +20,28 @@ class ABatteryNetCharacter : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	class UCameraComponent* FollowCamera;
 
-	//////////////////////////////////////////////////
-	/** Collection Sphere */
+	/** First person camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	class UCameraComponent* FirstPersonCamera;
+
+protected:
+	/** Collection Sphere */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battery", meta = (AllowPrivateAccess = "true"))
 	class USphereComponent* CollectionSphere;
+
+	/** Gun mesh */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Mesh, meta = (AllowPrivateAccess = "true"))
+	class USkeletalMeshComponent* Gun;
+
+	/** Muzzle location for gun */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Mesh, meta = (AllowPrivateAccess = "true"))
+	class USceneComponent* MuzzleLocation;
+
+protected:
+	virtual void BeginPlay();
+
+public:
+	virtual void Tick(float DeltaTime) override;
 
 public:
 	ABatteryNetCharacter();
@@ -74,7 +92,7 @@ public:
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
-	/** Returns #######################**/
+	/** Returns CollectionSphere subobject **/
 	FORCEINLINE class USphereComponent* GeCollectionSphere() const { return CollectionSphere; }
 
 public:
@@ -88,6 +106,9 @@ public:
 	// Access to the character's current power
 	UFUNCTION(BlueprintPure, Category = "Battery")
 	float GetCurrentPower();
+
+	UFUNCTION(BlueprintCallable, Category = "GunPlay")
+	float TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 
 	/**
 	* This updates the character's power level
@@ -105,22 +126,41 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Battery") 
 	float SpeedFactor;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GunPlay")
+	float FireRate;
+
 	UFUNCTION(NetMulticast, Reliable)
 	void OnPlayerDeath();
 
-protected:
-	// The character's starting power level
-	UPROPERTY(Replicated, EditAnywhere, BlueprintReadWrite, Category = "Battery", Meta = (AllowPrivateAccess = "true"))
-	float InitialPower;
+	UFUNCTION(BlueprintImplementableEvent)
+	void SetCrosshairPosition();
 
 public:
-
 	// Called when player presses a key to collect pickups
 	UFUNCTION(BlueprintCallable, Category = "Pickup")
 	void CollectPickups();
 
+	// Called when player pressed a key to build something 
 	UFUNCTION(BlueprintCallable, Category = "Building")
 	void BuildSomething();
+
+	// Called for switching the 3 to 1 person or, 1 to 3 person
+	UFUNCTION(BlueprintCallable, Category = Camera)
+	void SwitchCamera();
+
+	// Called for firing the gun
+	UFUNCTION(BlueprintCallable, Category = "GunPlay")
+	void StartFire();
+
+	UFUNCTION(BlueprintCallable, Category = "GunPlay")
+	void StopFire();
+
+	// Called for zooming (iron-sight)
+	UFUNCTION(BlueprintCallable, Category = "GunPlay")
+	void StartZoom();
+
+	UFUNCTION(BlueprintCallable, Category = "GunPlay")
+	void StopZoom();
 
 public:
 	// Called on server to process the collection of pickups
@@ -132,12 +172,31 @@ public:
 	void ServerBuildSomething();
 	virtual void ServerBuildSomething_Implementation();
 
+	UFUNCTION(Server, Reliable)
+	void ServerStartZoom();
+	virtual void ServerStartZoom_Implementation();
+
+	UFUNCTION(Server, Reliable)
+	void ServerStopZoom();
+	virtual void ServerStopZoom_Implementation();
+
+	UFUNCTION(Server, Reliable)
+	void HandleFire();
+	virtual void HandleFire_Implementation();
+
+public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Building")
 	TSubclassOf<class AFloor> BuildClass;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GunPlay")
+	TSubclassOf<class AMyProjectile> ProjectileClass;
+
 private:
-	//UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Battery", meta = (AllowPrivateAccess = "true"))
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Battery", meta = (AllowPrivateAccess = "true"))
+	// The character's starting power level
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadWrite, Category = "Battery", Meta = (AllowPrivateAccess = "true"))
+	float InitialPower;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Battery", meta = (AllowPrivateAccess = "true"))
 	float CollectionSphereRadius;
 
 	// The character's current power level during game play
@@ -147,7 +206,20 @@ private:
 	UPROPERTY(Replicated, EditAnywhere, BlueprintReadWrite, Category = "Battery", Meta = (AllowPrivateAccess = "true"))
 	float CurrentSpeed;
 
+	UPROPERTY(Replicated, EditAnywhere, BlueprintReadWrite, Category = "GunPlay", Meta = (AllowPrivateAccess = "true"))
+	float AimPitch;
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "GunPlay", meta = (AllowPrivateAccess = "true"))
+	bool bIsIronsightOn;
+
+	bool bIsFiringWeapon;
+
+	FTimerHandle FiringTimer;
+
 	UFUNCTION()
 	void OnRep_CurrentPower();
+
+private:
+	void NormalizeAimPitch();
 };
 

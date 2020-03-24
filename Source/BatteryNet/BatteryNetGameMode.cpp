@@ -68,27 +68,34 @@ void ABatteryNetGameMode::DrainPowerOverTime()
 	ABatteryGameStateBase* MyGameState = Cast<ABatteryGameStateBase>(GameState);
 	check(GameState);
 
+	// Get all player controller
 	for (FConstControllerIterator It = World->GetControllerIterator(); It; ++It)
 	{
 		if (APlayerController* PlayerController = Cast<APlayerController>(*It))
 		{
+			// Get character mapped to controller
 			if (ABatteryNetCharacter* BatteryCharacter = Cast<ABatteryNetCharacter>(PlayerController->GetPawn()))
 			{
+				// A player won the game
 				if (BatteryCharacter->GetCurrentPower() > MyGameState->PowerToWin)
 				{
+					// Change the game state
 					MyGameState->WinningPlayerName = BatteryCharacter->GetName();
 					HandleNewState(EBatteryGameState::EWon);
 				}
+				// Drain player's power
 				else if (BatteryCharacter->GetCurrentPower() > 0)
 				{
 					float InitialPower = BatteryCharacter->GetInitialPower();
 					BatteryCharacter->UpdatePower(-PowerDrainDelay * DecayRate * InitialPower);
 				}
+				// A player is dead
 				else
 				{
 					BatteryCharacter->OnPlayerDeath();
 
 					++DeadPlayerCount;
+					// Change the game state
 					if (DeadPlayerCount >= GetNumPlayers())
 					{
 						HandleNewState(EBatteryGameState::EGameOver);

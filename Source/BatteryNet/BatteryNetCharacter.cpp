@@ -11,10 +11,12 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Net/UnrealNetwork.h"
+
 #include "Pickup.h"
 #include "BatteryPickup.h"
-
+#include "MyProjectile.h"
 #include "Floor.h"
+
 #include "DrawDebugHelpers.h"
 //////////////////////////////////////////////////////////////////////////
 // ABatteryNetCharacter
@@ -59,16 +61,57 @@ ABatteryNetCharacter::ABatteryNetCharacter()
 	CollectionSphere->SetupAttachment(RootComponent);
 	CollectionSphere->SetSphereRadius(CollectionSphereRadius);
 
+	// Create the first person camera
+	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
+	USkeletalMeshComponent* StaticMesh = GetMesh();
+	FirstPersonCamera->bUsePawnControlRotation = true;
+	FirstPersonCamera->SetupAttachment(StaticMesh);
+
+	// Create gun mesh
+	Gun = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Gun"));
+	Gun->SetupAttachment(RootComponent);
+
+	// Create MuzzleLocation
+	MuzzleLocation = CreateDefaultSubobject<USceneComponent>(TEXT("MuzzleLocation"));
+	MuzzleLocation->SetupAttachment(Gun);
+	MuzzleLocation->SetRelativeLocation(FVector(0.2f, 48.4f, -10.f));
+
+	// Set base the character's power
 	InitialPower = 200.f;
 	CurrentPower = InitialPower;
 
+	// Set base the character's speed
 	BaseSpeed = 200.f;
 	SpeedFactor = 0.25f;
 
+	// Gun play ....
+	bIsIronsightOn = false;
+	bIsFiringWeapon = false;
+	FireRate = 0.25f;
+	ProjectileClass = AMyProjectile::StaticClass();
+
+	// Movement options
 	GetCharacterMovement()->SetIsReplicated(true);
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 	GetCharacterMovement()->bUseControllerDesiredRotation = true;
 }
+
+void ABatteryNetCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	Gun->AttachToComponent(GetMesh(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), TEXT("GripPoint"));
+}
+
+void ABatteryNetCharacter::Tick(float DeltaTime)
+{
+	// The position of crosshair will be updated by muzzleLocation
+	SetCrosshairPosition();
+
+	// Normalize aim pitch for aim-offset
+	NormalizeAimPitch();
+}
+
 
 void ABatteryNetCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -78,6 +121,8 @@ void ABatteryNetCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(ABatteryNetCharacter, CurrentSpeed);
 	DOREPLIFETIME(ABatteryNetCharacter, InitialPower);
 	DOREPLIFETIME(ABatteryNetCharacter, CurrentPower);
+	DOREPLIFETIME(ABatteryNetCharacter, AimPitch);
+	DOREPLIFETIME(ABatteryNetCharacter, bIsIronsightOn);
 }
 
 float ABatteryNetCharacter::GetInitialPower()
@@ -88,6 +133,13 @@ float ABatteryNetCharacter::GetInitialPower()
 float ABatteryNetCharacter::GetCurrentPower()
 {
 	return CurrentPower;
+}
+
+float ABatteryNetCharacter::TakeDamage(float DamageTaken, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	float DamageApplied = CurrentPower - DamageTaken;
+	UpdatePower(-DamageTaken);
+	return DamageApplied;
 }
 
 void ABatteryNetCharacter::UpdatePower(float DeltaPower)
@@ -215,7 +267,15 @@ void ABatteryNetCharacter::SetupPlayerInputComponent(class UInputComponent* Play
 	// Handle collection pickups
 	PlayerInputComponent->BindAction("Collect", IE_Pressed, this, &ABatteryNetCharacter::CollectPickups);
 
+	// ......
 	PlayerInputComponent->BindAction("Build", IE_Pressed, this, &ABatteryNetCharacter::BuildSomething);
+	PlayerInputComponent->BindAction("SwitchCamera", IE_Pressed, this, &ABatteryNetCharacter::SwitchCamera);
+
+	PlayerInputComponent->BindAction("Zoom", IE_Pressed, this, &ABatteryNetCharacter::StartZoom);
+	PlayerInputComponent->BindAction("Zoom", IE_Released, this, &ABatteryNetCharacter::StopZoom);
+
+	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ABatteryNetCharacter::StartFire);
+	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ABatteryNetCharacter::StopFire);
 }
 
 void ABatteryNetCharacter::OnResetVR()
@@ -279,6 +339,49 @@ void ABatteryNetCharacter::BuildSomething()
 	ServerBuildSomething();
 }
 
+void ABatteryNetCharacter::SwitchCamera()
+{
+	FollowCamera->ToggleActive();
+	FirstPersonCamera->ToggleActive();
+
+	if (GetMesh()->bOwnerNoSee)
+	{
+		GetMesh()->SetOwnerNoSee(false);
+	}
+	else
+	{
+		GetMesh()->SetOwnerNoSee(true);
+	}
+}
+
+void ABatteryNetCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
+	{
+		bIsFiringWeapon = true;
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(FiringTimer, this, &ABatteryNetCharacter::StopFire, FireRate, false);
+			HandleFire();
+		}
+	}
+}
+
+void ABatteryNetCharacter::StopFire()
+{
+	bIsFiringWeapon = false;
+}
+
+void ABatteryNetCharacter::StartZoom()
+{
+	ServerStartZoom();
+}
+
+void ABatteryNetCharacter::StopZoom()
+{
+	ServerStopZoom();
+}
+
 bool ABatteryNetCharacter::ServerBuildSomething_Validate()
 {
 	// Checks bad input, parameters or hacking
@@ -305,3 +408,57 @@ void ABatteryNetCharacter::ServerBuildSomething_Implementation()
 		}
 	}
 }
+
+void ABatteryNetCharacter::ServerStartZoom_Implementation()
+{
+	if (Role == ROLE_Authority)
+	{
+		bIsIronsightOn = true;
+	}
+}
+
+void ABatteryNetCharacter::ServerStopZoom_Implementation()
+{
+	if (Role == ROLE_Authority)
+	{
+		bIsIronsightOn = false;
+	}
+}
+
+void ABatteryNetCharacter::HandleFire_Implementation()
+{
+	FVector SpawnLocation = MuzzleLocation->GetComponentLocation();
+	FRotator SpawnRotation = GetControlRotation();
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.Instigator = Instigator;
+	SpawnParameters.Owner = this;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->SpawnActor<AMyProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, SpawnParameters);
+	}
+}
+
+void ABatteryNetCharacter::NormalizeAimPitch()
+{
+	if (Role == ROLE_Authority)
+	{
+		// Pitch of controller is aim-off
+		AimPitch = GetControlRotation().Pitch;
+		// Normalize the pitch
+		AimPitch = FRotator::NormalizeAxis(AimPitch);
+	}
+}
+
+/*
+if (Role == ROLE_Authority)
+{
+	float ControlPitch = GetControlRotation().Pitch;
+	float ActorPitch = GetActorRotation().Pitch;
+	AimPitch = ControlPitch - ActorPitch;
+
+	FRotator Rotator(AimPitch, 0, 0);
+	Rotator.Normalize();
+	AimPitch = Rotator.Pitch;
+}*/
