@@ -15,9 +15,12 @@ class BATTERYNET_API UDamageIndicatorWidget : public UUserWidget
 	GENERATED_BODY()
 
 	/** Location of the pawn who damaged my charcter */
-	UPROPERTY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material", meta = (AllowPrivateAccess = "true"))
 	FVector DamageCauserLocation;
-	
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material", meta = (AllowPrivateAccess = "true"))
+	class UMaterialInstanceDynamic* Material;
+
 public:
 	UDamageIndicatorWidget(const FObjectInitializer& ObjectInitializer);
 
@@ -33,5 +36,4 @@ public:
 
 public:
 	void SetDamageCauserLocation(const FVector& CauseLocation);
-
 };

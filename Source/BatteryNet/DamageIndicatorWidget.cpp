@@ -2,12 +2,19 @@
 
 
 #include "DamageIndicatorWidget.h"
+#include "GameFramework/Character.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Components/Border.h"
+
 #include "Math/UnrealMathUtility.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Kismet/GameplayStatics.h"
 
 UDamageIndicatorWidget::UDamageIndicatorWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	//SetAnchorsInViewport(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+	//	SetAlignmentInViewport(FVector2D(0.5f, 0.5f));
 }
 
 void UDamageIndicatorWidget::NativeConstruct()
@@ -21,24 +28,24 @@ void UDamageIndicatorWidget::NativeTick(const FGeometry& MyGeometry, float InDel
 	// Make sure to call base's tick function
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	UWorld* World = GetWorld();
+	ACharacter* Character = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
+	if (Character)
+	{
+		FVector V1(Character->GetActorForwardVector());
+		FVector V2(Character->GetActorLocation() - DamageCauserLocation);
+		V2.Normalize();
 
-	auto Controller = World->GetFirstPlayerController();
-	AActor* Actor = Controller->GetPawn();
+		float Y = FVector::CrossProduct(V1, V2).Z;
+		float X = FVector::DotProduct(V1, V2);
 
-	// Forward vector
-	const FRotator Rotation = Controller->GetControlRotation();
-	const FRotator YawRotation(0, Rotation.Yaw, 0);
-	FVector Direction = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	FVector2D Direction2D(Direction);
+		float Angle = UKismetMathLibrary::DegAtan2(Y, X); // Degree
+		float ClampedAngle = UKismetMathLibrary::MapRangeClamped(Angle, 180.f, -180.f, 0.f, 1.f);
 
-	FVector ActorLocation = Actor->GetActorLocation();
-	FVector CauserLocation = DamageCauserLocation - ActorLocation;
-	CauserLocation.Normalize();
-	FVector2D DamageCauserLocation2D(CauserLocation);
-
-	UKismetMathLibrary::Atan2(FVector2D::CrossProduct(Direction2D, DamageCauserLocation2D), 
-		FVector::DotProduct(Direction, CauserLocation));
+		if (Material)
+		{
+			Material->SetScalarParameterValue(FName(TEXT("Angle")), ClampedAngle);
+		}
+	}
 }
 
 void UDamageIndicatorWidget::SetDamageCauserLocation(const FVector& CauseLocation)
