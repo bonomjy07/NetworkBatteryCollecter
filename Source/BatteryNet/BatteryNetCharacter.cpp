@@ -110,6 +110,21 @@ void ABatteryNetCharacter::Tick(float DeltaTime)
 
 	// Normalize aim pitch for aim-offset
 	NormalizeAimPitch();
+	
+	// Zoom in/out smoothly
+	if (IsLocallyControlled())
+	{
+		if (bIsIronsightOn)
+		{
+			ZoomFactor += DeltaTime / 0.125f;
+		}
+		else
+		{
+			ZoomFactor -= DeltaTime / 0.125f;
+		}
+		ZoomFactor = FMath::Clamp<float>(ZoomFactor, 0.0f, 1.0f);
+		CameraBoom->TargetArmLength = FMath::Lerp<float>(300.f, 100.f, ZoomFactor);
+	}
 }
 
 
